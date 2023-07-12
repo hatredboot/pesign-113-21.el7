@@ -1,0 +1,25 @@
+From ea81cec14d31cd0b0dbde5b42414bfae9daec9b8 Mon Sep 17 00:00:00 2001
+From: Peter Jones <pjones@redhat.com>
+Date: Tue, 14 Jul 2020 16:44:09 -0400
+Subject: [PATCH 07/11] client: remove an extra debug print
+
+Signed-off-by: Peter Jones <pjones@redhat.com>
+---
+ src/client.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/src/client.c b/src/client.c
+index 0082be1f597..c9966295e5f 100644
+--- a/src/client.c
++++ b/src/client.c
+@@ -536,7 +536,6 @@ oom:
+ 				  0, true);
+ 	}
+ 
+-	printf("add_file_type:%d\n", add_file_type);
+ 	pm->version = PESIGND_VERSION;
+ 	pm->command = attached ? (add_file_type ? CMD_SIGN_ATTACHED_WITH_FILE_TYPE
+ 						: CMD_SIGN_ATTACHED)
+-- 
+2.26.2
+

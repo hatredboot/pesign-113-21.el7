@@ -1,0 +1,27 @@
+From 3956d8a819541578b31c919270e915fbcc791e89 Mon Sep 17 00:00:00 2001
+From: Peter Jones <pjones@redhat.com>
+Date: Fri, 1 Oct 2021 17:58:20 -0400
+Subject: [PATCH] Detect the presence of rpm-sign when checking for
+ "rhel"-ness.
+
+Signed-off-by: Peter Jones <pjones@redhat.com>
+---
+ src/pesign-rpmbuild-helper.in | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/pesign-rpmbuild-helper.in b/src/pesign-rpmbuild-helper.in
+index 27b8261bc17..d6ca29683b1 100644
+--- a/src/pesign-rpmbuild-helper.in
++++ b/src/pesign-rpmbuild-helper.in
+@@ -187,7 +187,7 @@ main() {
+ 	fi
+     fi
+ 
+-    if [[ "${rhelver}" -ge 7 ]] ; then
++    if [[ "${rhelver}" -ge 7 ]] && which rpm-sign >&/dev/null ; then
+ 	nssdir="$(mktemp -p "${PWD}" -d)"
+ 	echo > "${nssdir}/pwfile"
+ 	certutil -N -d "${nssdir}" -f "${nssdir}/pwfile"
+-- 
+2.31.1
+

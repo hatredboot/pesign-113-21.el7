@@ -1,0 +1,41 @@
+From 0b9048cbcc1cfc2afd9cbf781732882736cbe965 Mon Sep 17 00:00:00 2001
+From: Peter Jones <pjones@redhat.com>
+Date: Tue, 14 Jul 2020 16:42:39 -0400
+Subject: [PATCH 11/11] kernel building hack
+
+Signed-off-by: Peter Jones <pjones@redhat.com>
+---
+ src/pesign-rpmbuild-helper.in | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/src/pesign-rpmbuild-helper.in b/src/pesign-rpmbuild-helper.in
+index c5287c27e0c..27b8261bc17 100644
+--- a/src/pesign-rpmbuild-helper.in
++++ b/src/pesign-rpmbuild-helper.in
+@@ -202,6 +202,23 @@ main() {
+ 	    "${input[@]}" "${output[@]}"
+ 	rm -rf "${sattrs}" "${sattrs}.sig" "${nssdir}"
+     elif [[ -n "${socket}" ]] ; then
++	### welcome haaaaack city
++	if [[ "${client_token[1]}" = "OpenSC Card (Fedora Signer)" ]] ; then
++	    if [[ "${input[1]}" =~ (/|^)vmlinuz($|[_.-]) ]] \
++	       || [[ "${input[1]}" =~ (/|^)bzImage($|[_.-]) ]] ; then
++		if [[ "${rhelcertfile}" =~ redhatsecureboot501.* ]] \
++		   || [[ "${rhelcertfile}" =~ redhatsecureboot401.* ]] \
++		   || [[ "${rhelcertfile}" =~ centossecureboot201.* ]] ; then
++		    client_cert[1]=kernel-signer
++		elif [[ "${rhelcertfile}" =~ redhatsecureboot502.* ]] \
++		   || [[ "${rhelcertfile}" =~ centossecureboot202.* ]] ; then
++		    client_cert[1]=grub2-signer
++		elif [[ "${rhelcertfile}" =~ redhatsecureboot503.* ]] \
++		   || [[ "${rhelcertfile}" =~ centossecureboot203.* ]] ; then
++		    client_cert[1]=fwupd-signer
++		fi
++	    fi
++	fi
+ 	"${client}" "${client_token[@]}" "${client_cert[@]}"    \
+ 	    "${sattrout[@]}" "${certout[@]}"	\
+ 	    ${sign} "${input[@]}" "${output[@]}"
+-- 
+2.26.2
+

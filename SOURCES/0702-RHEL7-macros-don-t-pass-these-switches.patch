@@ -1,0 +1,24 @@
+From 2ef643035eb97fca0a09e91e374fa6a5350a5771 Mon Sep 17 00:00:00 2001
+From: SL-Team <SCIENTIFIC-LINUX-DEVEL@FNAL.GOV>
+Date: Wed, 12 Jul 2023 13:31:31 -0500
+Subject: [PATCH] RHEL7 macros don't pass these switches
+
+---
+ src/pesign-rpmbuild-helper.in | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/src/pesign-rpmbuild-helper.in b/src/pesign-rpmbuild-helper.in
+index 94250ae..109914d 100644
+--- a/src/pesign-rpmbuild-helper.in
++++ b/src/pesign-rpmbuild-helper.in
+@@ -213,7 +213,6 @@ main() {
+ 	    fi
+ 	fi
+ 	"${client}" "${client_token[@]}" "${client_cert[@]}"    \
+-	    "${sattrout[@]}" "${certout[@]}"	\
+ 	    ${sign} "${input[@]}" "${output[@]}"
+     else
+ 	"${bin}" --certdir "${nssdir}" "${token[@]}"	\
+-- 
+1.8.3.1
+

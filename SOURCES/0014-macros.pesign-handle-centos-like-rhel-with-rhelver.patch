@@ -1,0 +1,26 @@
+From efb69f149f256631a952e0a0db5b45ed5d391509 Mon Sep 17 00:00:00 2001
+From: Peter Jones <pjones@redhat.com>
+Date: Tue, 10 Aug 2021 12:39:08 -0400
+Subject: [PATCH] macros.pesign: handle centos like rhel with --rhelver
+
+Signed-off-by: Peter Jones <pjones@redhat.com>
+---
+ src/macros.pesign | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/macros.pesign b/src/macros.pesign
+index 34af57c5b3b..2ca1afb916e 100644
+--- a/src/macros.pesign
++++ b/src/macros.pesign
+@@ -35,6 +35,7 @@
+     %{?_buildhost:--hostname "%{_buildhost}"}				\\\
+     %{?vendor:--vendor "%{vendor}"}					\\\
+-    %{?_rhel:--rhelver "%{_rhel}"}					\\\
++    %{?rhel:--rhelver "%{rhel}"}					\\\
++    %{?centos:--rhelver "%{centos}"}					\\\
+     %{?-n:--rhelcert %{-n*}}%{?!-n:--rhelcert %{__pesign_cert}}	\\\
+     %{?-a:--rhelcafile "%{-a*}"}					\\\
+     %{?-c:--rhelcertfile "%{-c*}"}					\\\
+-- 
+2.31.1
+

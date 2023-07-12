@@ -1,0 +1,30 @@
+From 56eaa15e986d808c670381ca375216eb3abd1588 Mon Sep 17 00:00:00 2001
+From: Jeremy Cline <jcline@redhat.com>
+Date: Tue, 18 Feb 2020 16:37:53 -0500
+Subject: [PATCH] Apparently opensc got updated and the token name changed
+
+All the kernel builds started failing yesterday because the signing
+token could not be found. Update the token name in the macro shipped by
+pesign.
+
+Signed-off-by: Peter Jones <pjones@redhat.com>
+---
+ src/macros.pesign | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/macros.pesign b/src/macros.pesign
+index 7c5cba170e9..56f75cafbc4 100644
+--- a/src/macros.pesign
++++ b/src/macros.pesign
+@@ -9,7 +9,7 @@
+ %__pesign_token %{nil}%{?pe_signing_token:-t "%{pe_signing_token}"}
+ %__pesign_cert %{!?pe_signing_cert:"Red Hat Test Certificate"}%{?pe_signing_cert:"%{pe_signing_cert}"}
+ 
+-%__pesign_client_token %{!?pe_signing_token:"Fedora Signer (OpenSC Card)"}%{?pe_signing_token:"%{pe_signing_token}"}
++%__pesign_client_token %{!?pe_signing_token:"OpenSC Card (Fedora Signer)"}%{?pe_signing_token:"%{pe_signing_token}"}
+ %__pesign_client_cert %{!?pe_signing_cert:"/CN=Fedora Secure Boot Signer"}%{?pe_signing_cert:"%{pe_signing_cert}"}
+ 
+ %_pesign /usr/bin/pesign
+-- 
+2.26.2
+

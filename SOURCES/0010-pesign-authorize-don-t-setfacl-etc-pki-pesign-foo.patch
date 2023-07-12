@@ -1,0 +1,26 @@
+From 24bb6e1471b16b6be82f13b5b5a302b4e98c1b4d Mon Sep 17 00:00:00 2001
+From: Peter Jones <pjones@redhat.com>
+Date: Tue, 14 Jul 2020 15:08:15 -0400
+Subject: [PATCH 10/11] pesign-authorize: don't setfacl /etc/pki/pesign-foo/
+
+Signed-off-by: Peter Jones <pjones@redhat.com>
+---
+ src/pesign-authorize | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/pesign-authorize b/src/pesign-authorize
+index 55cd5c4e55b..c5448329c2c 100755
+--- a/src/pesign-authorize
++++ b/src/pesign-authorize
+@@ -47,7 +47,7 @@ update_subdir() {
+ 	done
+ }
+ 
+-for x in /var/run/pesign/ /etc/pki/pesign*/ ; do
++for x in /var/run/pesign/ /etc/pki/pesign/ ; do
+ 	if [ -d "${x}" ]; then
+ 		update_subdir "${x}"
+ 	else
+-- 
+2.26.2
+

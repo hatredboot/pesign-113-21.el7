@@ -1,0 +1,379 @@
+From 6c16b978fd33f3611e9f7aaf4f9c44bce1679485 Mon Sep 17 00:00:00 2001
+From: Peter Jones <pjones@redhat.com>
+Date: Mon, 6 Jul 2020 13:54:35 -0400
+Subject: [PATCH] Move most of macros.pesign to pesign-rpmbuild-helper
+
+Signed-off-by: Peter Jones <pjones@redhat.com>
+---
+ Make.defaults                 |   1 +
+ src/Makefile                  |   8 +-
+ src/macros.pesign             |  74 ++++--------
+ src/pesign-rpmbuild-helper.in | 222 ++++++++++++++++++++++++++++++++++
+ 4 files changed, 252 insertions(+), 53 deletions(-)
+ create mode 100644 src/pesign-rpmbuild-helper.in
+
+diff --git a/Make.defaults b/Make.defaults
+index 0bacafe0d01..d4cd626c11e 100644
+--- a/Make.defaults
++++ b/Make.defaults
+@@ -16,6 +16,7 @@ INSTALLROOT = $(DESTDIR)
+ 
+ INSTALL	?= install
+ CROSS_COMPILE	?=
++EFI_ARCHES ?= aa64 ia32 x64
+ 
+ PKG_CONFIG = $(CROSS_COMPILE)pkg-config
+ CC	:= $(if $(filter default,$(origin CC)),$(CROSS_COMPILE)gcc,$(CC))
+diff --git a/src/Makefile b/src/Makefile
+index 74327ba13f3..a7ca89159c6 100644
+--- a/src/Makefile
++++ b/src/Makefile
+@@ -5,7 +5,7 @@ include $(TOPDIR)/Make.version
+ include $(TOPDIR)/Make.rules
+ include $(TOPDIR)/Make.defaults
+ 
+-BINTARGETS=authvar client efikeygen efisiglist pesigcheck pesign
++BINTARGETS=authvar client efikeygen efisiglist pesigcheck pesign pesign-rpmbuild-helper
+ SVCTARGETS=pesign.sysvinit pesign.service
+ TARGETS=$(BINTARGETS) $(SVCTARGETS)
+ 
+@@ -49,6 +49,11 @@ pesign : $(call objects-of,$(PESIGN_SOURCES) $(COMMON_SOURCES) $(COMMON_PE_SOURC
+ pesign : LDLIBS+=$(TOPDIR)/libdpe/libdpe.a
+ pesign : PKGS=efivar nss nspr popt
+ 
++pesign-rpmbuild-helper: pesign-rpmbuild-helper.in
++	sed \
++		-e "s/@@EFI_ARCHES@@/$(EFI_ARCHES)/g" \
++		$^ > $@
++
+ deps : PKGS=efivar nss nspr popt uuid
+ deps : $(ALL_SOURCES)
+ 	$(MAKE) -f $(TOPDIR)/Make.deps \
+@@ -94,6 +99,7 @@ install :
+ 	$(INSTALL) -m 644 macros.pesign $(INSTALLROOT)/etc/rpm/
+ 	$(INSTALL) -d -m 755 $(INSTALLROOT)$(libexecdir)/pesign/
+ 	$(INSTALL) -m 750 pesign-authorize $(INSTALLROOT)$(libexecdir)/pesign/
++	$(INSTALL) -m 755 pesign-rpmbuild-helper $(INSTALLROOT)$(libexecdir)/pesign/
+ 	$(INSTALL) -d -m 700 $(INSTALLROOT)/etc/pesign
+ 	$(INSTALL) -m 600 pesign-users $(INSTALLROOT)/etc/pesign/users
+ 	$(INSTALL) -m 600 pesign-groups $(INSTALLROOT)/etc/pesign/groups
+diff --git a/src/macros.pesign b/src/macros.pesign
+index 5a6da1c6809..2e984b4eeb3 100644
+--- a/src/macros.pesign
++++ b/src/macros.pesign
+@@ -6,7 +6,7 @@
+ # %pesign -s -i shim.orig -o shim.efi
+ # And magically get the right thing.
+ 
+-%__pesign_token %{nil}%{?pe_signing_token:-t "%{pe_signing_token}"}
++%__pesign_token %{nil}%{?pe_signing_token:--token "%{pe_signing_token}"}
+ %__pesign_cert %{!?pe_signing_cert:"Red Hat Test Certificate"}%{?pe_signing_cert:"%{pe_signing_cert}"}
+ 
+ %__pesign_client_token %{!?pe_signing_token:"OpenSC Card (Fedora Signer)"}%{?pe_signing_token:"%{pe_signing_token}"}
+@@ -24,54 +24,24 @@
+ # -a <input ca cert filename>		# rhel only
+ # -s 					# perform signing
+ %pesign(i:o:C:e:c:n:a:s)						\
+-  _pesign_nssdir=/etc/pki/pesign					\
+-  if [ %{__pesign_cert} = "Red Hat Test Certificate" ]; then		\
+-    _pesign_nssdir=/etc/pki/pesign-rh-test				\
+-  fi									\
+-  if [ -x %{_pesign} ] &&  						\\\
+-       [ "%{_target_cpu}" == "x86_64" -o 				\\\
+-         "%{_target_cpu}" == "aarch64" ]; then				\
+-    if [ "0%{?rhel}" -ge "7" -a -f /usr/bin/rpm-sign ]; then		\
+-      nss=$(mktemp -p $PWD -d)						\
+-      echo > ${nss}/pwfile						\
+-      certutil -N -d ${nss} -f ${nss}/pwfile				\
+-      certutil -A -n "ca" -t "CT,C," -i %{-a*} -d ${nss}		\
+-      certutil -A -n "signer" -t ",c," -i %{-c*} -d ${nss}		\
+-      sattrs=$(mktemp -p $PWD --suffix=.der)				\
+-      %{_pesign} %{-i} -E ${sattrs} --certdir ${nss} --force		\
+-      rpm-sign --key "%{-n*}" --rsadgstsign ${sattrs}			\
+-      %{_pesign} -R ${sattrs}.sig -I ${sattrs} %{-i}			\\\
+-                 --certdir ${nss} -c signer %{-o}			\
+-      rm -rf ${sattrs} ${sattrs}.sig ${nss}				\
+-    elif [ "$(id -un)" == "kojibuilder" -a				\\\
+-           grep -q ID=fedora /etc/os-release -a				\\\
+-           ! -S /run/pesign/socket ]; then				\
+-      echo "No socket even though this is kojibuilder" 1>&2		\
+-      ls -ld /run/pesign 1>&2					\
+-      ls -l /run/pesign/socket 1>&2					\
+-      getfacl /run/pesign 1>&2					\
+-      getfacl /run/pesign/socket 1>&2				\
+-      exit 1								\
+-    elif [ -S /run/pesign/socket ]; then				\
+-      %{_pesign_client} -t %{__pesign_client_token}			\\\
+-                        -c %{__pesign_client_cert}			\\\
+-                        %{-i} %{-o} %{-e} %{-s} %{-C}			\
+-    else								\
+-      %{_pesign} %{__pesign_token} -c %{__pesign_cert}			\\\
+-                 --certdir ${_pesign_nssdir}				\\\
+-                 %{-i} %{-o} %{-e} %{-s} %{-C}				\
+-    fi									\
+-  else									\
+-    if [ -n "%{-i*}" -a -n "%{-o*}" ]; then				\
+-      mv %{-i*} %{-o*}							\
+-    elif [ -n "%{-i*}" -a -n "%{-e*}" ]; then				\
+-      touch %{-e*}							\
+-    fi									\
+-  fi									\
+-  if [ ! -s %{-o} ]; then						\
+-    if [ -e "%{-o*}" ]; then						\
+-      rm -f %{-o*}							\
+-    fi									\
+-    exit 1								\
+-  fi ;
+-
++  %{_libexecdir}/pesign/pesign-rpmbuild-helper				\\\
++    "%{_target_cpu}"							\\\
++    "%{_pesign}"							\\\
++    "%{_pesign_client}"							\\\
++    %{?__pesign_client_token:--client-token %{__pesign_client_token}}	\\\
++    %{?__pesign_client_cert:--client-cert %{__pesign_client_cert}}	\\\
++    %{?__pesign_token:%{__pesign_token}}				\\\
++    %{?__pesign_cert:--cert %{__pesign_cert}}				\\\
++    %{?_buildhost:--hostname "%{_buildhost}"}				\\\
++    %{?vendor:--vendor "%{vendor}"}					\\\
++    %{?_rhel:--rhelver "%{_rhel}"}					\\\
++    %{?-n:--rhelcert %{-n*}}%{?!-n:--rhelcert %{__pesign_cert}}	\\\
++    %{?-a:--rhelcafile "%{-a*}"}					\\\
++    %{?-c:--rhelcertfile "%{-c*}"}					\\\
++    %{?-C:--certout "%{-C*}"}						\\\
++    %{?-e:--sattrout "%{-e*}"}						\\\
++    %{?-i:--in "%{-i*}"}						\\\
++    %{?-o:--out "%{-o*}"}						\\\
++    %{?-s:--sign}							\\\
++    ;									\
++%{nil}
+diff --git a/src/pesign-rpmbuild-helper.in b/src/pesign-rpmbuild-helper.in
+new file mode 100644
+index 00000000000..c5287c27e0c
+--- /dev/null
++++ b/src/pesign-rpmbuild-helper.in
+@@ -0,0 +1,222 @@
++#!/bin/bash
++# shellcheck shell=bash
++
++set -eu
++set -x
++
++usage() {
++    local status="${1}" && shift
++    local out
++    if [[ "${status}" -eq 0 ]] ; then
++	out=/dev/stdout
++    else
++	out=/dev/stderr
++    fi
++
++    if [[ $# -gt 0 ]] ; then
++	echo "${0}: error: $*" >>"${out}"
++    fi
++    echo "usage: ${0} TARGET_CPU PESIGN_BINARY PESIGN_CLIENT_BINARY [OPTIONS]" >>"${out}"
++    exit "${status}"
++}
++
++is_efi_arch() {
++    local arch="${1}"
++    local arches=(@@EFI_ARCHES@@)
++    local x
++    for x in "${arches[@]}" ; do
++	if [[ "${arch}" = "${x}" ]] ; then
++	    return 0
++	fi
++    done
++    return 1
++}
++
++error_on_empty() {
++    local f="${1}"
++    if [[ ! -s "${f}" ]] ; then
++	if [[ -e "${f}" ]] ; then
++	    rm -f "${f}"
++	fi
++	echo "${0}: error: empty result file \"${f}\"">>/dev/stderr
++	exit 1
++    fi
++}
++
++main() {
++    if [[ $# -lt 3 ]] ; then
++	usage 1 not enough arguments
++    fi
++    local target_cpu="${1}" && shift
++    local bin="${1}" && shift
++    local client="${1}" && shift
++
++    local rhelcafile="" || :
++    local rhelcertfile="" || :
++
++    local certout=() || :
++    local sattrout=() || :
++    local input=() || :
++    local output=() || :
++    local client_token=() || :
++    local client_cert=() || :
++    local token=() || :
++    local cert=() || :
++    local rhelcert=() || :
++    local rhelver=0 || :
++    local sign="" || :
++    local arch="" || :
++    local vendor="" || :
++    local HOSTNAME="" || :
++
++    while [[ $# -ge 2 ]] ; do
++	case " ${1} " in
++	" --rhelcafile ")
++	    rhelcafile="${2}"
++	    ;;
++	" --rhelcertfile ")
++	    rhelcertfile="${2}"
++	    ;;
++	" --hostname ")
++	    HOSTNAME="${2}"
++	    ;;
++	" --certout ")
++	    certout[0]=-C
++	    certout[1]="${2}"
++	    ;;
++	" --sattrout ")
++	    sattrout[0]=-e
++	    sattrout[1]="${2}"
++	    ;;
++	" --client-token ")
++	    client_token[0]=-t
++	    client_token[1]="${2}"
++	    ;;
++	" --client-cert ")
++	    client_cert[0]=-c
++	    client_cert[1]="${2}"
++	    ;;
++	" --token ")
++	    token[0]=-t
++	    token[1]="${2}"
++	    ;;
++	" --cert ")
++	    cert[0]=-c
++	    cert[1]="${2}"
++	    ;;
++	" --rhelcert ")
++	    rhelcert[0]=-c
++	    rhelcert[1]="${2}"
++	    ;;
++	" --in ")
++	    input[0]=-i
++	    input[1]="${2}"
++	    ;;
++	" --out ")
++	    output[0]=-o
++	    output[1]="${2}"
++	    ;;
++	" --rhelver ")
++	    rhelver="${2}"
++	    ;;
++	" --vendor ")
++	    vendor="${2}"
++	    ;;
++	*)
++	    break
++	    ;;
++	esac
++	shift
++	shift
++    done
++    if [[ $# -ge 1 ]] && [[ "${1}" = --sign ]] ; then
++	sign=-s
++	shift
++    fi
++
++    if [[ -z "${target_cpu}" ]] ; then
++	target_cpu="$(uname -m)"
++    fi
++
++    target_cpu="${target_cpu/i?86/ia32}"
++    target_cpu="${target_cpu/x86_64/x64}"
++    target_cpu="${target_cpu/aarch64/aa64}"
++    target_cpu="${target_cpu/arm*/arm/}"
++
++    local nssdir=/etc/pki/pesign
++    if [[ "${#cert[@]}" -eq 2 ]] &&
++       [[ "${cert[1]}" == "Red Hat Test Certificate" ]] ; then
++	nssdir=/etc/pki/pesign-rh-test
++    fi
++
++    # is_efi_arch is ultimately returning "is pesign configured to sign these
++    # using the rpm macro", so if it isn't, we're just copying the input to
++    # the output
++    if [[ -x "${bin}" ]] && ! is_efi_arch "${target_cpu}" ; then
++	if [[ -n "${input[*]}" ]] && [[ -n "${output[*]}" ]] ; then
++	    cp -v "${input[1]}" "${output[1]}"
++	elif [[ -n "${input[*]}" ]] && [[ -n "${sattrout[*]}" ]] ; then
++	    touch "${sattrout[1]}"
++	fi
++
++	# if there's a 0-sized output file, delete it and error out
++	error_on_empty "${output[1]}"
++	return 0
++    fi
++
++    USERNAME="${USERNAME:-$(id -un)}"
++
++    local socket="" || :
++    if grep -q ID=fedora /etc/os-release \
++       && [[ "${rhelver}" -lt 7 ]] \
++       && [[ "${USERNAME}" = "mockbuild" ]] \
++       && [[ "${vendor}" = "Fedora Project" ]] \
++       && [[ "${HOSTNAME}" =~ bkernel.* ]]
++    then
++	if [[ -S /run/pesign/socket ]] ; then
++	    socket=/run/pesign/socket
++	elif [[ -S /var/run/pesign/socket ]]; then
++	    socket=/var/run/pesign/socket
++	else
++	    echo "Warning: no pesign socket even though user is ${USERNAME}" 1>&2
++	    echo "Warning: if this is a non-scratch koji build, this is wrong" 1>&2
++	    ls -ld /run/pesign /var/run/pesign 1>&2 ||:
++	    ls -l /run/pesign/socket /var/run/pesign/socket 1>&2 ||:
++	    getfacl /run/pesign /run/pesign/socket /var/run/pesign /var/run/pesign/socket 1>&2 ||:
++	    getfacl -n /run/pesign /run/pesign/socket /var/run/pesign /var/run/pesign/socket 1>&2 ||:
++	fi
++    fi
++
++    if [[ "${rhelver}" -ge 7 ]] ; then
++	nssdir="$(mktemp -p "${PWD}" -d)"
++	echo > "${nssdir}/pwfile"
++	certutil -N -d "${nssdir}" -f "${nssdir}/pwfile"
++	certutil -A -n "ca" -t "CTu,CTu,CTu" -i "${rhelcafile}" -d "${nssdir}"
++	certutil -A -n "signer" -t "CTu,CTu,CTu" -i "${rhelcertfile}" -d "${nssdir}"
++	sattrs="$(mktemp -p "${PWD}" --suffix=.der)"
++	"${bin}" -E "${sattrs}" --certdir "${nssdir}" \
++	    "${input[@]}" --force
++	rpm-sign --key "${rhelcert[1]}" --rsadgstsign "${sattrs}"
++	"${bin}" -R "${sattrs}.sig" -I "${sattrs}" \
++	    --certdir "${nssdir}" -c signer \
++	    "${input[@]}" "${output[@]}"
++	rm -rf "${sattrs}" "${sattrs}.sig" "${nssdir}"
++    elif [[ -n "${socket}" ]] ; then
++	"${client}" "${client_token[@]}" "${client_cert[@]}"    \
++	    "${sattrout[@]}" "${certout[@]}"	\
++	    ${sign} "${input[@]}" "${output[@]}"
++    else
++	"${bin}" --certdir "${nssdir}" "${token[@]}"	\
++	    "${cert[@]}" ${sign} "${sattrout[@]}"	\
++	    "${certout[@]}"    "${input[@]}" "${output[@]}"
++    fi
++
++    # if there's a 0-sized output file, delete it and error out
++    if [[ "${#output[@]}" -eq 2 ]] ; then
++	error_on_empty "${output[1]}"
++    fi
++}
++
++main "${@}"
++
++# vim:filetype=sh:fenc=utf-8:tw=78:sts=4:sw=4
+-- 
+2.26.2
+

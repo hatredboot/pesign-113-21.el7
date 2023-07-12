@@ -1,0 +1,105 @@
+From db4c6e8cc57271dce6d204a3144982e544e55025 Mon Sep 17 00:00:00 2001
+From: Peter Jones <pjones@redhat.com>
+Date: Thu, 16 Jul 2020 16:28:26 -0400
+Subject: [PATCH] Use /run not /var/run
+
+Signed-off-by: Peter Jones <pjones@redhat.com>
+---
+ src/daemon.h           |  4 ++--
+ src/Makefile           |  2 +-
+ src/pesign-authorize   |  2 +-
+ src/pesign.service.in  |  2 +-
+ src/pesign.sysvinit.in | 10 +++++-----
+ 5 files changed, 10 insertions(+), 10 deletions(-)
+
+diff --git a/src/daemon.h b/src/daemon.h
+index 0368dc9256c..5fcd97ea717 100644
+--- a/src/daemon.h
++++ b/src/daemon.h
+@@ -51,8 +51,8 @@ typedef enum {
+ } pesignd_cmd;
+ 
+ #define PESIGND_VERSION 0x2a9edaf0
+-#define SOCKPATH	"/var/run/pesign/socket"
+-#define PIDFILE		"/var/run/pesign.pid"
++#define SOCKPATH	"/run/pesign/socket"
++#define PIDFILE		"/run/pesign.pid"
+ 
+ static inline uint32_t UNUSED
+ pesignd_string_size(char *buffer)
+diff --git a/src/Makefile b/src/Makefile
+index a7ca89159c6..f7fb5fc9ee5 100644
+--- a/src/Makefile
++++ b/src/Makefile
+@@ -78,7 +78,7 @@ install_sysvinit: pesign.sysvinit
+ install :
+ 	$(INSTALL) -d -m 700 $(INSTALLROOT)/etc/pki/pesign/
+ 	$(INSTALL) -d -m 700 $(INSTALLROOT)/etc/pki/pesign-rh-test/
+-	$(INSTALL) -d -m 770 $(INSTALLROOT)/var/run/pesign/
++	$(INSTALL) -d -m 770 $(INSTALLROOT)/run/pesign/
+ 	$(INSTALL) -d -m 755 $(INSTALLROOT)$(bindir)
+ 	$(INSTALL) -m 755 authvar $(INSTALLROOT)$(bindir)
+ 	$(INSTALL) -m 755 pesign $(INSTALLROOT)$(bindir)
+diff --git a/src/pesign-authorize b/src/pesign-authorize
+index c5448329c2c..2381302440c 100755
+--- a/src/pesign-authorize
++++ b/src/pesign-authorize
+@@ -47,7 +47,7 @@ update_subdir() {
+ 	done
+ }
+ 
+-for x in /var/run/pesign/ /etc/pki/pesign/ ; do
++for x in /run/pesign/ /var/run/pesign/ /etc/pki/pesign/ ; do
+ 	if [ -d "${x}" ]; then
+ 		update_subdir "${x}"
+ 	else
+diff --git a/src/pesign.service.in b/src/pesign.service.in
+index c75a000892a..4ac2199bce2 100644
+--- a/src/pesign.service.in
++++ b/src/pesign.service.in
+@@ -4,6 +4,6 @@ Description=Pesign signing daemon
+ [Service]
+ PrivateTmp=true
+ Type=forking
+-PIDFile=/var/run/pesign.pid
++PIDFile=/run/pesign.pid
+ ExecStart=/usr/bin/pesign --daemonize
+ ExecStartPost=@@LIBEXECDIR@@/pesign/pesign-authorize
+diff --git a/src/pesign.sysvinit.in b/src/pesign.sysvinit.in
+index b0e0f84ff0b..bf8edec8ff3 100644
+--- a/src/pesign.sysvinit.in
++++ b/src/pesign.sysvinit.in
+@@ -4,7 +4,7 @@
+ #
+ # chkconfig: - 50 50
+ # processname: /usr/bin/pesign
+-# pidfile: /var/run/pesign.pid
++# pidfile: /run/pesign.pid
+ ### BEGIN INIT INFO 
+ # Provides: pesign
+ # Default-Start:
+@@ -20,9 +20,9 @@ RETVAL=0
+ 
+ start(){
+     echo -n "Starting pesign: "
+-    mkdir /var/run/pesign 2>/dev/null &&
+-        chown pesign:pesign /var/run/pesign &&
+-        chmod 0770 /var/run/pesign
++    mkdir /run/pesign 2>/dev/null &&
++        chown pesign:pesign /run/pesign &&
++        chmod 0770 /run/pesign
+     daemon /usr/bin/pesign --daemonize
+     RETVAL=$?
+     echo
+@@ -32,7 +32,7 @@ start(){
+ 
+ stop(){
+     echo -n "Stopping pesign: "
+-    killproc -p /var/run/pesign.pid pesignd
++    killproc -p /run/pesign.pid pesignd
+     RETVAL=$?
+     echo
+     rm -f /var/lock/subsys/pesign
+-- 
+2.26.2
+

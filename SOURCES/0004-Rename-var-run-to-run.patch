@@ -1,0 +1,46 @@
+From f886b7088dfea224e28c03b097c85c9bc20f5441 Mon Sep 17 00:00:00 2001
+From: Peter Jones <pjones@redhat.com>
+Date: Fri, 12 Jun 2020 11:49:44 -0400
+Subject: [PATCH] Rename /var/run/ to /run/
+
+Signed-off-by: Peter Jones <pjones@redhat.com>
+---
+ src/macros.pesign | 12 ++++++------
+ src/tmpfiles.conf |  2 +-
+ 2 files changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/src/macros.pesign b/src/macros.pesign
+index 56f75cafbc4..5a6da1c6809 100644
+--- a/src/macros.pesign
++++ b/src/macros.pesign
+@@ -45,14 +45,14 @@
+       rm -rf ${sattrs} ${sattrs}.sig ${nss}				\
+     elif [ "$(id -un)" == "kojibuilder" -a				\\\
+            grep -q ID=fedora /etc/os-release -a				\\\
+-           ! -S /var/run/pesign/socket ]; then				\
++           ! -S /run/pesign/socket ]; then				\
+       echo "No socket even though this is kojibuilder" 1>&2		\
+-      ls -ld /var/run/pesign 1>&2					\
+-      ls -l /var/run/pesign/socket 1>&2					\
+-      getfacl /var/run/pesign 1>&2					\
+-      getfacl /var/run/pesign/socket 1>&2				\
++      ls -ld /run/pesign 1>&2					\
++      ls -l /run/pesign/socket 1>&2					\
++      getfacl /run/pesign 1>&2					\
++      getfacl /run/pesign/socket 1>&2				\
+       exit 1								\
+-    elif [ -S /var/run/pesign/socket ]; then				\
++    elif [ -S /run/pesign/socket ]; then				\
+       %{_pesign_client} -t %{__pesign_client_token}			\\\
+                         -c %{__pesign_client_cert}			\\\
+                         %{-i} %{-o} %{-e} %{-s} %{-C}			\
+diff --git a/src/tmpfiles.conf b/src/tmpfiles.conf
+index c1cf35597d8..3375ad52a44 100644
+--- a/src/tmpfiles.conf
++++ b/src/tmpfiles.conf
+@@ -1 +1 @@
+-D /var/run/pesign 0770 pesign pesign -
++D /run/pesign 0770 pesign pesign -
+-- 
+2.26.2
+

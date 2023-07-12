@@ -1,0 +1,317 @@
+From 84547e6b7173e4b10a1931fd25f329ea9a8f68b0 Mon Sep 17 00:00:00 2001
+From: Peter Jones <pjones@redhat.com>
+Date: Thu, 11 Jun 2020 16:23:14 -0400
+Subject: [PATCH] Make 0.112 client and server work with the 113 protocol and
+ vise versa
+
+This makes the version of the sign API that takes a file type optional,
+and makes the client attempt to negotiate which version it's getting.
+It also leaves the server able to still handle the version from before
+the file type was added.
+
+Signed-off-by: Peter Jones <pjones@redhat.com>
+---
+ src/client.c | 74 +++++++++++++++++++++++++++++++++++++---------------
+ src/daemon.c | 63 +++++++++++++++++++++++++++++---------------
+ src/daemon.h |  2 ++
+ 3 files changed, 97 insertions(+), 42 deletions(-)
+
+diff --git a/src/client.c b/src/client.c
+index aa373abd981..57bcc09cbe8 100644
+--- a/src/client.c
++++ b/src/client.c
+@@ -11,6 +11,7 @@
+ #include <fcntl.h>
+ #include <popt.h>
+ #include <pwd.h>
++#include <stdbool.h>
+ #include <stddef.h>
+ #include <stdlib.h>
+ #include <sys/socket.h>
+@@ -84,8 +85,8 @@ connect_to_server(void)
+ static int32_t
+ check_response(int sd, char **srvmsg);
+ 
+-static void
+-check_cmd_version(int sd, uint32_t command, char *name, int32_t version)
++static int
++check_cmd_version(int sd, uint32_t command, char *name, int32_t version, bool do_exit)
+ {
+ 	struct msghdr msg;
+ 	struct iovec iov[1];
+@@ -104,7 +105,7 @@ check_cmd_version(int sd, uint32_t command, char *name, int32_t version)
+ 	ssize_t n;
+ 	n = sendmsg(sd, &msg, 0);
+ 	if (n < 0) {
+-		fprintf(stderr, "check-cmd-version: kill daemon failed: %m\n");
++		fprintf(stderr, "check-cmd-version: sendmsg failed: %m\n");
+ 		exit(1);
+ 	}
+ 
+@@ -120,11 +121,17 @@ check_cmd_version(int sd, uint32_t command, char *name, int32_t version)
+ 
+ 	char *srvmsg = NULL;
+ 	int32_t rc = check_response(sd, &srvmsg);
+-	if (rc < 0)
++
++	if (do_exit && rc < 0)
+ 		errx(1, "command \"%s\" not known by server", name);
+-	if (rc != version)
++
++	if (do_exit && rc != version)
+ 		errx(1, "command \"%s\": client version %d, server version %d",
+ 			name, version, rc);
++
++	if (rc < 0)
++		return rc;
++	return rc == version;
+ }
+ 
+ static void
+@@ -134,7 +141,7 @@ send_kill_daemon(int sd)
+ 	struct iovec iov;
+ 	pesignd_msghdr pm;
+ 
+-	check_cmd_version(sd, CMD_KILL_DAEMON, "kill-daemon", 0);
++	check_cmd_version(sd, CMD_KILL_DAEMON, "kill-daemon", 0, true);
+ 
+ 	pm.version = PESIGND_VERSION;
+ 	pm.command = CMD_KILL_DAEMON;
+@@ -276,7 +283,7 @@ unlock_token(int sd, char *tokenname, char *pin)
+ 
+ 	uint32_t size1 = pesignd_string_size(pin);
+ 
+-	check_cmd_version(sd, CMD_UNLOCK_TOKEN, "unlock-token", 0);
++	check_cmd_version(sd, CMD_UNLOCK_TOKEN, "unlock-token", 0, true);
+ 
+ 	pm.version = PESIGND_VERSION;
+ 	pm.command = CMD_UNLOCK_TOKEN;
+@@ -353,7 +360,7 @@ is_token_unlocked(int sd, char *tokenname)
+ 
+ 	uint32_t size0 = pesignd_string_size(tokenname);
+ 
+-	check_cmd_version(sd, CMD_IS_TOKEN_UNLOCKED, "is-token-unlocked", 0);
++	check_cmd_version(sd, CMD_IS_TOKEN_UNLOCKED, "is-token-unlocked", 0, true);
+ 
+ 	pm.version = PESIGND_VERSION;
+ 	pm.command = CMD_IS_TOKEN_UNLOCKED;
+@@ -452,6 +459,9 @@ static void
+ sign(int sd, char *infile, char *outfile, char *tokenname, char *certname,
+ 	int attached, uint32_t format)
+ {
++	int rc;
++	bool add_file_type;
++
+ 	int infd = open(infile, O_RDONLY);
+ 	if (infd < 0) {
+ 		fprintf(stderr, "pesign-client: could not open input file "
+@@ -481,12 +491,28 @@ oom:
+ 		exit(1);
+ 	}
+ 
+-	check_cmd_version(sd, attached ? CMD_SIGN_ATTACHED : CMD_SIGN_DETACHED,
+-			attached ? "sign-attached" : "sign-detached", 0);
++	rc = check_cmd_version(sd,
++			       attached ? CMD_SIGN_ATTACHED_WITH_FILE_TYPE
++					: CMD_SIGN_DETACHED_WITH_FILE_TYPE,
++			       attached ? "sign-attached" : "sign-detached",
++			       0, format == FORMAT_KERNEL_MODULE);
++	if (rc >= 0) {
++		add_file_type = true;
++	} else {
++		add_file_type = false;
++		check_cmd_version(sd, attached ? CMD_SIGN_ATTACHED
++					       : CMD_SIGN_DETACHED,
++				  attached ? "sign-attached" : "sign-detached",
++				  0, true);
++	}
+ 
++	printf("add_file_type:%d\n", add_file_type);
+ 	pm->version = PESIGND_VERSION;
+-	pm->command = attached ? CMD_SIGN_ATTACHED : CMD_SIGN_DETACHED;
+-	pm->size = size0 + size1 + sizeof(format);
++	pm->command = attached ? (add_file_type ? CMD_SIGN_ATTACHED_WITH_FILE_TYPE
++						: CMD_SIGN_ATTACHED)
++			       : (add_file_type ? CMD_SIGN_DETACHED_WITH_FILE_TYPE
++						: CMD_SIGN_DETACHED);
++	pm->size = size0 + size1 + (add_file_type ? sizeof(format) : 0);
+ 	iov[0].iov_base = pm;
+ 	iov[0].iov_len = sizeof (*pm);
+ 
+@@ -503,25 +529,31 @@ oom:
+ 	}
+ 
+ 	char *buffer;
+-	buffer = malloc(size0 + size1);
++	buffer = malloc(pm->size);
+ 	if (!buffer)
+ 		goto oom;
+ 
+-	iov[0].iov_base = &format;
+-	iov[0].iov_len = sizeof(format);
++	int pos = 0;
++
++	if (add_file_type) {
++		iov[pos].iov_base = &format;
++		iov[pos].iov_len = sizeof(format);
++		pos++;
++	}
+ 
+ 	pesignd_string *tn = (pesignd_string *)buffer;
+ 	pesignd_string_set(tn, tokenname);
+-	iov[1].iov_base = tn;
+-	iov[1].iov_len = size0;
++	iov[pos].iov_base = tn;
++	iov[pos].iov_len = size0;
++	pos++;
+ 
+ 	pesignd_string *cn = pesignd_string_next(tn);
+ 	pesignd_string_set(cn, certname);
+-	iov[2].iov_base = cn;
+-	iov[2].iov_len = size1;
++	iov[pos].iov_base = cn;
++	iov[pos].iov_len = size1;
+ 
+ 	msg.msg_iov = iov;
+-	msg.msg_iovlen = 3;
++	msg.msg_iovlen = add_file_type ? 3 : 2;
+ 
+ 	n = sendmsg(sd, &msg, 0);
+ 	if (n < 0) {
+@@ -535,7 +567,7 @@ oom:
+ 	send_fd(sd, outfd);
+ 
+ 	char *srvmsg = NULL;
+-	int rc = check_response(sd, &srvmsg);
++	rc = check_response(sd, &srvmsg);
+ 	if (rc < 0) {
+ 		fprintf(stderr, "pesign-client: signing failed: \"%s\"\n",
+ 			srvmsg);
+diff --git a/src/daemon.c b/src/daemon.c
+index 9374d59be30..494beb9af72 100644
+--- a/src/daemon.c
++++ b/src/daemon.c
+@@ -12,6 +12,7 @@
+ #include <poll.h>
+ #include <pwd.h>
+ #include <signal.h>
++#include <stdbool.h>
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <string.h>
+@@ -561,7 +562,7 @@ out:
+ 
+ static void
+ handle_signing(context *ctx, struct pollfd *pollfd, socklen_t size,
+-	int attached)
++	       int attached, bool with_file_type)
+ {
+ 	struct msghdr msg;
+ 	struct iovec iov;
+@@ -585,8 +586,12 @@ oom:
+ 
+ 	n = recvmsg(pollfd->fd, &msg, MSG_WAITALL);
+ 
+-	file_format = *((uint32_t *) buffer);
+-	n -= sizeof(uint32_t);
++	if (with_file_type) {
++		file_format = *((uint32_t *) buffer);
++		n -= sizeof(uint32_t);
++	} else {
++		file_format = FORMAT_PE_BINARY;
++	}
+ 
+ 	pesignd_string *tn = (pesignd_string *)(buffer + sizeof(uint32_t));
+ 	if (n < (long long)sizeof(tn->size)) {
+@@ -666,34 +671,44 @@ finish:
+ 	teardown_digests(ctx->cms);
+ }
+ 
++static inline void
++handle_sign_helper(context *ctx, struct pollfd *pollfd, socklen_t size,
++		   int attached, bool with_file_type)
++{
++	int rc = cms_context_alloc(&ctx->cms);
++	if (rc < 0)
++		return;
++
++	steal_from_cms(ctx->backup_cms, ctx->cms);
++
++	handle_signing(ctx, pollfd, size, attached, with_file_type);
++
++	hide_stolen_goods_from_cms(ctx->cms, ctx->backup_cms);
++	cms_context_fini(ctx->cms);
++}
++
+ static void
+ handle_sign_attached(context *ctx, struct pollfd *pollfd, socklen_t size)
+ {
+-	int rc = cms_context_alloc(&ctx->cms);
+-	if (rc < 0)
+-		return;
++	handle_sign_helper(ctx, pollfd, size, 1, false);
++}
+ 
+-	steal_from_cms(ctx->backup_cms, ctx->cms);
+-
+-	handle_signing(ctx, pollfd, size, 1);
+-
+-	hide_stolen_goods_from_cms(ctx->cms, ctx->backup_cms);
+-	cms_context_fini(ctx->cms);
++static void
++handle_sign_attached_with_file_type(context *ctx, struct pollfd *pollfd, socklen_t size)
++{
++	handle_sign_helper(ctx, pollfd, size, 1, true);
+ }
+ 
+ static void
+ handle_sign_detached(context *ctx, struct pollfd *pollfd, socklen_t size)
+ {
+-	int rc = cms_context_alloc(&ctx->cms);
+-	if (rc < 0)
+-		return;
++	handle_sign_helper(ctx, pollfd, size, 0, false);
++}
+ 
+-	steal_from_cms(ctx->backup_cms, ctx->cms);
+-
+-	handle_signing(ctx, pollfd, size, 0);
+-
+-	hide_stolen_goods_from_cms(ctx->cms, ctx->backup_cms);
+-	cms_context_fini(ctx->cms);
++static void
++handle_sign_detached_with_file_type(context *ctx, struct pollfd *pollfd, socklen_t size)
++{
++	handle_sign_helper(ctx, pollfd, size, 0, true);
+ }
+ 
+ static void
+@@ -725,6 +740,12 @@ cmd_table_t cmd_table[] = {
+ 		{ CMD_UNLOCK_TOKEN, handle_unlock_token, "unlock-token", 0 },
+ 		{ CMD_SIGN_ATTACHED, handle_sign_attached, "sign-attached", 0 },
+ 		{ CMD_SIGN_DETACHED, handle_sign_detached, "sign-detached", 0 },
++		{ CMD_SIGN_ATTACHED_WITH_FILE_TYPE,
++		  handle_sign_attached_with_file_type,
++		  "sign-attached-with-file-type", 0 },
++		{ CMD_SIGN_DETACHED_WITH_FILE_TYPE,
++		  handle_sign_detached_with_file_type,
++		  "sign-detached-with-file-type", 0 },
+ 		{ CMD_RESPONSE, NULL, "response",  0 },
+ 		{ CMD_IS_TOKEN_UNLOCKED, handle_is_token_unlocked,
+ 			"is-token-unlocked", 0 },
+diff --git a/src/daemon.h b/src/daemon.h
+index dd430512f1a..834d62c72d0 100644
+--- a/src/daemon.h
++++ b/src/daemon.h
+@@ -33,6 +33,8 @@ typedef enum {
+ 	CMD_RESPONSE,
+ 	CMD_IS_TOKEN_UNLOCKED,
+ 	CMD_GET_CMD_VERSION,
++	CMD_SIGN_ATTACHED_WITH_FILE_TYPE,
++	CMD_SIGN_DETACHED_WITH_FILE_TYPE,
+ 	CMD_LIST_END
+ } pesignd_cmd;
+ 
+-- 
+2.26.2
+

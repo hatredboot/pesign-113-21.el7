@@ -1,0 +1,37 @@
+From f8a0db065f2609f860e34439281db78518ed2f43 Mon Sep 17 00:00:00 2001
+From: SL-Team <SCIENTIFIC-LINUX-DEVEL@FNAL.GOV>
+Date: Wed, 12 Jul 2023 12:53:37 -0500
+Subject: [PATCH] Let everyone check for the pesign socket
+
+---
+ src/pesign-rpmbuild-helper.in | 7 -------
+ 1 file changed, 7 deletions(-)
+
+diff --git a/src/pesign-rpmbuild-helper.in b/src/pesign-rpmbuild-helper.in
+index d6ca296..94250ae 100644
+--- a/src/pesign-rpmbuild-helper.in
++++ b/src/pesign-rpmbuild-helper.in
+@@ -167,12 +167,6 @@ main() {
+     USERNAME="${USERNAME:-$(id -un)}"
+ 
+     local socket="" || :
+-    if grep -q ID=fedora /etc/os-release \
+-       && [[ "${rhelver}" -lt 7 ]] \
+-       && [[ "${USERNAME}" = "mockbuild" ]] \
+-       && [[ "${vendor}" = "Fedora Project" ]] \
+-       && [[ "${HOSTNAME}" =~ bkernel.* ]]
+-    then
+ 	if [[ -S /run/pesign/socket ]] ; then
+ 	    socket=/run/pesign/socket
+ 	elif [[ -S /var/run/pesign/socket ]]; then
+@@ -185,7 +179,6 @@ main() {
+ 	    getfacl /run/pesign /run/pesign/socket /var/run/pesign /var/run/pesign/socket 1>&2 ||:
+ 	    getfacl -n /run/pesign /run/pesign/socket /var/run/pesign /var/run/pesign/socket 1>&2 ||:
+ 	fi
+-    fi
+ 
+     if [[ "${rhelver}" -ge 7 ]] && which rpm-sign >&/dev/null ; then
+ 	nssdir="$(mktemp -p "${PWD}" -d)"
+-- 
+1.8.3.1
+
